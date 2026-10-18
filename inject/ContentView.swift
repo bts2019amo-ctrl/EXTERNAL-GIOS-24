@@ -78,10 +78,10 @@ struct ContentView: View {
     }
 
     private var exploitLabel: String {
-        if appState.kernelExploitRunning { return "EXPLOIT: RODANDO…" }
+        if appState.kernelExploitRunning { return "EXPLOIT: RODANDO… (até 5 tentativas)" }
         switch appState.exploitStatus {
         case .success: return "EXPLOIT: ATIVO"
-        case .failed(let m, let c): return "EXPLOIT: FALHOU — \(m) (\(c))"
+        case .failed(let m, let c): return "EXPLOIT: FALHOU — \(m) (\(c)) — toque SÓ EXPLOIT de novo"
         case .unsupported(let m): return "EXPLOIT: iOS NÃO SUPORTADO — \(m)"
         case .notStarted: return "EXPLOIT: AGUARDANDO"
         }
@@ -98,8 +98,8 @@ struct ContentView: View {
 
     private func runExploitOnly() {
         busy = true
-        status = "Rodando exploit…"
-        appState.runKernelExploitIfNeeded()
+        status = "Rodando exploit (até 5x)…"
+        appState.runKernelExploitIfNeeded(force: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
             self.pollExploit()
         }
@@ -110,7 +110,11 @@ struct ContentView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: pollExploit)
             return
         }
-        status = appState.exploitStatus.isSuccess ? "EXPLOIT OK" : "EXPLOIT FALHOU / VER LOG"
+        if appState.exploitStatus.isSuccess {
+            status = "EXPLOIT OK"
+        } else {
+            status = appState.lastExploitDetail.isEmpty ? "EXPLOIT FALHOU — reinicie o iPhone e tente de novo" : appState.lastExploitDetail
+        }
         busy = false
     }
 
