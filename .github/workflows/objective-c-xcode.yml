@@ -25,10 +25,27 @@ permissions:
 jobs:
   build:
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+
+      - name: Unzip full source
+        run: |
+          set -euo pipefail
+          if [ -f "Full source 3105 OG.zip" ]; then
+            echo "Found Full source 3105 OG.zip — extracting..."
+            unzip -o "Full source 3105 OG.zip"
+            # move contents up if nested in letme-2-main
+            if [ -d letme-2-main ]; then
+              cp -R letme-2-main/* .
+              cp -R letme-2-main/.[!.]* . 2>/dev/null || true
+              rm -rf letme-2-main
+            fi
+            ls -la
+          else
+            echo "No zip found, using repo root as-is"
+          fi
 
       - name: Locate Xcode project
         id: locate
@@ -40,7 +57,8 @@ jobs:
           PROJECT=$(find "$ROOT" -name '*.xcodeproj' -type d -print -quit)
           WORKSPACE=$(find "$ROOT" -name '*.xcworkspace' -type d -not -path '*/Pods/*' -print -quit)
           if [ -z "$PROJECT" ] && [ -z "$WORKSPACE" ]; then
-            echo 'No .xcodeproj or .xcworkspace found in the repository.' >&2
+            echo 'No .xcodeproj or .xcworkspace found.' >&2
+            find "$ROOT" -maxdepth 3 -type d | head -50
             exit 1
           fi
           if [ -n "$INPUT_SCHEME" ]; then
@@ -54,6 +72,7 @@ jobs:
           echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
           echo "workspace=$WORKSPACE" >> "$GITHUB_OUTPUT"
           echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+          echo "Using project: $PROJECT"
           echo "Using scheme: $SCHEME"
 
       - name: Build unsigned archive
@@ -82,6 +101,7 @@ jobs:
           cp -R "$APP_PATH" "$RUNNER_TEMP/Payload/"
           ditto -c -k --sequesterRsrc --keepParent "$RUNNER_TEMP/Payload" "$RUNNER_TEMP/${IPA_NAME}.ipa"
           test -s "$RUNNER_TEMP/${IPA_NAME}.ipa"
+          ls -lh "$RUNNER_TEMP/${IPA_NAME}.ipa"
 
       - name: Upload unsigned IPA artifact
         uses: actions/upload-artifact@v4
@@ -107,10 +127,5 @@ jobs:
             echo "Project: ${{ inputs.project_name }}"
             echo "Bundle ID: ${{ inputs.bundle_id }}"
             echo "Scheme: ${{ inputs.scheme }}"
-            echo "Source: repository checkout"
             echo "Signing: disabled"
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Clean up
-        if: always()
-        run: rm -rf "$RUNNER_TEMP/Payload" "$RUNNER_TEMP/App.xcarchive"
