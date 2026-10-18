@@ -41,37 +41,111 @@ jobs:
               cp -R letme-2-main/.[!.]* . 2>/dev/null || true
               rm -rf letme-2-main
             fi
-            ls -la
-          else
-            echo "No zip found, using repo root as-is"
           fi
 
-      - name: Unlock FF MAX + force license active
+      - name: Apply unlock + patch fixes
         run: |
           set -euo pipefail
-          # Unlock FF MAX button
           python3 - <<'PY'
           from pathlib import Path
+
+          # 1) Unlock FF MAX
           cv = Path("ThreeOneOSFive/ContentView.swift")
           text = cv.read_text(encoding="utf-8")
           old = 'lockedLaunchButton(title: "FF MAX", subtitle: "Locked • Coming Soon", color: AppTheme.secondaryAccent)'
           new = 'launchButton(title: "FF MAX", subtitle: "Free Fire MAX", color: AppTheme.secondaryAccent, scheme: "freefiremax")'
           if old in text:
               text = text.replace(old, new)
-              cv.write_text(text)
               print("FF MAX unlocked")
+
+          # 2) Better openGame with fallbacks + feedback
+          old_open = '''    private func openGame(scheme: String) {
+        guard let url = URL(string: "\\(scheme)://") else { return }
+        UIApplication.shared.open(url, options: [:]) { success in
+            log("launch: \\(scheme) success=\\(success)")
+        }
+    }'''
+          # use actual single backslash version in file
+          old_open = """    private func openGame(scheme: String) {
+        guard let url = URL(string: \"\\(scheme)://\") else { return }
+        UIApplication.shared.open(url, options: [:]) { success in
+            log(\"launch: \\(scheme) success=\\(success)\")
+        }
+    }"""
+          # simpler: find and replace by unique lines
+          import re
+          pattern = r'private func openGame\(scheme: String\) \{[\s\S]*?^    \}'
+          replacement = '''private func openGame(scheme: String) {
+        var candidates = [scheme]
+        if scheme == "freefireth" {
+            candidates += ["freefire", "freefireth", "garena.freefire"]
+        } else if scheme == "freefiremax" {
+            candidates += ["freefiremax", "freefirethmax", "freefiremaxth", "garena.freefiremax"]
+        }
+        var seen = Set<String>()
+        candidates = candidates.filter { seen.insert($0).inserted }
+
+        func tryNext(_ list: [String]) {
+            guard let first = list.first else {
+                DispatchQueue.main.async {
+                    self.patchMessage = "GAME NOT INSTALLED — install Free Fire / FF MAX first"
+                }
+                log("launch: all schemes failed")
+                return
+            }
+            guard let url = URL(string: "\\(first)://") else {
+                tryNext(Array(list.dropFirst()))
+                return
+            }
+            UIApplication.shared.open(url, options: [:]) { success in
+                log("launch: \\(first) success=\\(success)")
+                if success {
+                    DispatchQueue.main.async {
+                        self.patchMessage = "LAUNCHED — \\(first)"
+                    }
+                } else {
+                    tryNext(Array(list.dropFirst()))
+                }
+            }
+        }
+        tryNext(candidates)
+    }'''
+          new_text, n = re.subn(pattern, replacement, text, count=1, flags=re.M)
+          if n:
+              text = new_text
+              print("openGame replaced")
           else:
-              print("FF MAX pattern not found — already unlocked or different source")
-          # Force license always active
+              print("openGame pattern not matched")
+          cv.write_text(text)
+
+          # 3) License always active
           lm = Path("ThreeOneOSFive/helpers/LicenseManager.swift")
           t = lm.read_text(encoding="utf-8")
-          t = t.replace(
-              "func refresh() {\n        isActive = hasRememberedKey\n        message = isActive ? \"Ready to use\" : \"Key required — enter your access key\"\n    }",
-              "func refresh() {\n        isActive = true\n        message = \"Ready to use\"\n    }"
-          )
           t = t.replace("isActive = hasRememberedKey", "isActive = true")
+          t = t.replace(
+              'message = isActive ? "Ready to use" : "Key required — enter your access key"',
+              'message = "Ready to use"'
+          )
           lm.write_text(t)
-          print("LicenseManager forced active")
+          print("License forced active")
+
+          # 4) Fix .3105 extension in PatchProjectLibrary
+          lib = Path("ThreeOneOSFive/helpers/PatchProjectLibrary.swift")
+          lt = lib.read_text(encoding="utf-8")
+          lt = lt.replace(
+              'bundle.urls(forResourcesWithExtension: "OGIOS", subdirectory: "Patches") ?? []',
+              'bundle.urls(forResourcesWithExtension: "3105", subdirectory: "Patches") ?? []'
+          )
+          lt = lt.replace(
+              'bundle.urls(forResourcesWithExtension: "OGIOS", subdirectory: nil) ?? []',
+              '(bundle.urls(forResourcesWithExtension: "3105", subdirectory: nil) ?? []) + (bundle.urls(forResourcesWithExtension: "OGIOS", subdirectory: nil) ?? []) + (bundle.urls(forResourcesWithExtension: "OGIOS", subdirectory: "Patches") ?? [])'
+          )
+          lt = lt.replace(
+              'for url in urls where url.pathExtension.lowercased() == "OGIOS" {',
+              'for url in urls where ["ogios", "3105"].contains(url.pathExtension.lowercased()) {'
+          )
+          lib.write_text(lt)
+          print("PatchProjectLibrary extension fixed")
           PY
 
       - name: Locate Xcode project
@@ -84,23 +158,17 @@ jobs:
           PROJECT=$(find "$ROOT" -name '*.xcodeproj' -type d -print -quit)
           WORKSPACE=$(find "$ROOT" -name '*.xcworkspace' -type d -not -path '*/Pods/*' -print -quit)
           if [ -z "$PROJECT" ] && [ -z "$WORKSPACE" ]; then
-            echo 'No .xcodeproj or .xcworkspace found.' >&2
-            find "$ROOT" -maxdepth 3 -type d | head -50
-            exit 1
+            echo 'No .xcodeproj found' >&2; exit 1
           fi
-          if [ -n "$INPUT_SCHEME" ]; then
-            SCHEME="$INPUT_SCHEME"
+          if [ -n "$INPUT_SCHEME" ]; then SCHEME="$INPUT_SCHEME"
           elif [ -n "$WORKSPACE" ]; then
             SCHEME=$(xcodebuild -list -json -workspace "$WORKSPACE" | /usr/bin/python3 -c 'import json,sys; d=json.load(sys.stdin); print((d.get("workspace",{}).get("schemes") or [""])[0])')
           else
             SCHEME=$(xcodebuild -list -json -project "$PROJECT" | /usr/bin/python3 -c 'import json,sys; d=json.load(sys.stdin); print((d.get("project",{}).get("schemes") or [""])[0])')
           fi
-          [ -n "$SCHEME" ] || { echo 'No Xcode scheme found.' >&2; exit 1; }
           echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
           echo "workspace=$WORKSPACE" >> "$GITHUB_OUTPUT"
           echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
-          echo "Using project: $PROJECT"
-          echo "Using scheme: $SCHEME"
 
       - name: Build unsigned archive
         env:
@@ -123,11 +191,10 @@ jobs:
         run: |
           set -euo pipefail
           APP_PATH=$(find "$RUNNER_TEMP/App.xcarchive/Products/Applications" -maxdepth 1 -name '*.app' -type d -print -quit)
-          [ -n "$APP_PATH" ] || { echo 'No .app was produced by xcodebuild.' >&2; exit 1; }
+          [ -n "$APP_PATH" ] || { echo 'No .app produced' >&2; exit 1; }
           mkdir -p "$RUNNER_TEMP/Payload"
           cp -R "$APP_PATH" "$RUNNER_TEMP/Payload/"
           ditto -c -k --sequesterRsrc --keepParent "$RUNNER_TEMP/Payload" "$RUNNER_TEMP/${IPA_NAME}.ipa"
-          test -s "$RUNNER_TEMP/${IPA_NAME}.ipa"
           ls -lh "$RUNNER_TEMP/${IPA_NAME}.ipa"
 
       - name: Upload unsigned IPA artifact
