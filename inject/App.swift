@@ -26,17 +26,9 @@ class AppState: ObservableObject {
     @Published var exploitStatus: ExploitStatus = .notStarted
     @Published var unsupportedMessage: String?
     @Published var kernelExploitRunning = false
+    @Published var lastExploitDetail: String = ""
 
     private var autoRunAttempted = false
-
-    var kernelExploitApplicable: Bool {
-        KernelExploit.isApplicable(
-            major: AppInfo.versionTuple.major,
-            minor: AppInfo.versionTuple.minor,
-            patch: AppInfo.versionTuple.patch,
-            build: AppInfo.osBuild
-        )
-    }
 
     var isSupported: Bool { unsupportedMessage == nil }
 
@@ -58,59 +50,41 @@ class AppState: ObservableObject {
             exploitStatus = .unsupported(unsupportedMessage)
             return
         }
-        let applicable = KernelExploit.isApplicable(
-            major: v.major,
-            minor: v.minor,
-            patch: v.patch,
-            build: AppInfo.osBuild
-        )
-        guard applicable else { return }
-        refreshKernelExploitStatus()
-        maybeAutoRunKernelExploit()
-    }
-
-    private func maybeAutoRunKernelExploit() {
-        guard !kernelExploitRunning,
-              !exploitStatus.isSuccess,
-              !exploitStatus.isFailed,
-              !autoRunAttempted else { return }
-        autoRunAttempted = true
-        log("app: starting kernel exploit automatically")
-        runKernelExploitIfNeeded()
-    }
-
-    private func refreshKernelExploitStatus() {
-        guard !kernelExploitRunning else { return }
-        if KernelExploit.requiresSandboxEscape {
-            if KernelExploit.hasSandboxAccess() {
-                if !exploitStatus.isSuccess {
-                    exploitStatus = .success(method: "kexploit")
-                    log("app: existing sandbox access is still active")
-                }
-            } else if exploitStatus.isSuccess {
-                exploitStatus = .notStarted
-            }
+        if KernelExploit.hasSandboxAccess() {
+            exploitStatus = .success(method: "kexploit")
+            return
+        }
+        if !autoRunAttempted && !exploitStatus.isSuccess {
+            autoRunAttempted = true
+            runKernelExploitIfNeeded(force: true)
         }
     }
 
-    func runKernelExploitIfNeeded() {
-        refreshKernelExploitStatus()
-        guard !kernelExploitRunning,
-              !exploitStatus.isSuccess,
-              !exploitStatus.isFailed else { return }
+    func runKernelExploitIfNeeded(force: Bool = false) {
+        if force, case .failed = exploitStatus {
+            exploitStatus = .notStarted
+        }
+        guard !kernelExploitRunning else { return }
+        if exploitStatus.isSuccess { return }
+        if !force, exploitStatus.isFailed { return }
+
         kernelExploitRunning = true
         exploitStatus = .notStarted
-        log("app: running kernel exploit on background...")
+        lastExploitDetail = "running…"
+        log("app: running kernel exploit (retries enabled)…")
+
         DispatchQueue.global(qos: .userInitiated).async {
-            let ok = KernelExploit.run()
+            let ok = KernelExploit.runWithRetries(maxAttempts: 5, delaySeconds: 2.5)
             DispatchQueue.main.async {
                 self.kernelExploitRunning = false
                 if ok {
                     self.exploitStatus = .success(method: "kexploit")
+                    self.lastExploitDetail = "OK"
                     log("app: kernel exploit success")
                 } else {
                     self.exploitStatus = .failed(method: "kexploit", code: -1)
-                    log("app: kernel exploit failed")
+                    self.lastExploitDetail = "all retries failed — reboot device and try again"
+                    log("app: kernel exploit failed after retries")
                 }
             }
         }
