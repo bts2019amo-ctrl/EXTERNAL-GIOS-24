@@ -11,7 +11,7 @@ on:
       project_name:
         description: Output IPA name
         required: false
-        default: OGIOS
+        default: OGIOS-INJECT
         type: string
       scheme:
         description: Xcode scheme
@@ -34,7 +34,6 @@ jobs:
         run: |
           set -euo pipefail
           if [ -f "Full source 3105 OG.zip" ]; then
-            echo "Found Full source 3105 OG.zip — extracting..."
             unzip -o "Full source 3105 OG.zip"
             if [ -d letme-2-main ]; then
               cp -R letme-2-main/* .
@@ -43,7 +42,7 @@ jobs:
             fi
           fi
 
-      - name: Apply unlock + patch fixes
+      - name: Apply inject-only fixes
         run: |
           set -euo pipefail
           python3 scripts/apply_fixes.py
