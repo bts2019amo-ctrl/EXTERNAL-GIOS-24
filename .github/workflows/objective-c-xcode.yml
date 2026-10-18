@@ -36,7 +36,6 @@ jobs:
           if [ -f "Full source 3105 OG.zip" ]; then
             echo "Found Full source 3105 OG.zip — extracting..."
             unzip -o "Full source 3105 OG.zip"
-            # move contents up if nested in letme-2-main
             if [ -d letme-2-main ]; then
               cp -R letme-2-main/* .
               cp -R letme-2-main/.[!.]* . 2>/dev/null || true
@@ -46,6 +45,34 @@ jobs:
           else
             echo "No zip found, using repo root as-is"
           fi
+
+      - name: Unlock FF MAX + force license active
+        run: |
+          set -euo pipefail
+          # Unlock FF MAX button
+          python3 - <<'PY'
+          from pathlib import Path
+          cv = Path("ThreeOneOSFive/ContentView.swift")
+          text = cv.read_text(encoding="utf-8")
+          old = 'lockedLaunchButton(title: "FF MAX", subtitle: "Locked • Coming Soon", color: AppTheme.secondaryAccent)'
+          new = 'launchButton(title: "FF MAX", subtitle: "Free Fire MAX", color: AppTheme.secondaryAccent, scheme: "freefiremax")'
+          if old in text:
+              text = text.replace(old, new)
+              cv.write_text(text)
+              print("FF MAX unlocked")
+          else:
+              print("FF MAX pattern not found — already unlocked or different source")
+          # Force license always active
+          lm = Path("ThreeOneOSFive/helpers/LicenseManager.swift")
+          t = lm.read_text(encoding="utf-8")
+          t = t.replace(
+              "func refresh() {\n        isActive = hasRememberedKey\n        message = isActive ? \"Ready to use\" : \"Key required — enter your access key\"\n    }",
+              "func refresh() {\n        isActive = true\n        message = \"Ready to use\"\n    }"
+          )
+          t = t.replace("isActive = hasRememberedKey", "isActive = true")
+          lm.write_text(t)
+          print("LicenseManager forced active")
+          PY
 
       - name: Locate Xcode project
         id: locate
@@ -118,14 +145,3 @@ jobs:
           path: ${{ runner.temp }}/xcodebuild.log
           if-no-files-found: ignore
           retention-days: 7
-
-      - name: Write build summary
-        if: always()
-        run: |
-          {
-            echo "### IPA build"
-            echo "Project: ${{ inputs.project_name }}"
-            echo "Bundle ID: ${{ inputs.bundle_id }}"
-            echo "Scheme: ${{ inputs.scheme }}"
-            echo "Signing: disabled"
-          } >> "$GITHUB_STEP_SUMMARY"
