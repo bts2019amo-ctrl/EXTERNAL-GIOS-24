@@ -1,38 +1,26 @@
 # EXTERNAL GIOS 24
 
-**OGIOS / ThreeOneOSFive / HyperRegedit** full source.
+**OGIOS / ThreeOneOSFive full source**
 
-Public repo created for building unsigned IPA on GitHub macOS runners.
+## 🚀 Como subir o source e gerar o IPA
 
-## Build (GitHub Actions)
+1. Clique em **Add file** → **Upload files**
+2. Arraste o arquivo `Full source 3105 OG.zip` (ou a pasta `letme-2-main` extraída)
+3. Clique em **Commit changes**
+4. Vá em **Actions** → **Build unsigned IPA** → **Run workflow**
+5. Quando terminar, baixe o artifact `OGIOS-unsigned-ipa`
 
-Workflow: `.github/workflows/objective-c-xcode.yml`
+---
+
+### Workflow já configurado
 
 - Runner: `macos-15`
-- Produces **unsigned IPA**
-- Trigger: `workflow_dispatch` (manual)
-- Default scheme: `OGIOS`
-- Default bundle id: `com.apple.mobile.MobileHouseArrest`
+- Gera IPA **unsigned**
+- Scheme: `OGIOS`
+- Bundle ID padrão: `com.apple.mobile.MobileHouseArrest`
 
-Go to **Actions** tab → **Build unsigned IPA** → **Run workflow**
+Só subir o source e rodar o workflow.
 
-## License key (local)
+---
 
-```
-WINNER
-```
-
-Stored in Keychain. No network activation required.
-
-## Structure
-
-- `ThreeOneOSFive/` — app source (SwiftUI + ObjC + kexploit)
-- `ThreeOneOSFive.xcodeproj/` — Xcode project
-- `ThreeOneOSFive/Patches/` — embedded .3105 patch packages
-- `ThreeOneOSFive/kexploit/` + `exploit/` — kernel exploit support
-- `.github/workflows/` — macOS build pipeline
-
-## Notes
-
-Source extracted from `Full source 3105 OG.zip`.
-Binary patch files (.3105) and AppIcon may need to be re-added if missing after first push (size limits).
+License key local: `WINNER`
